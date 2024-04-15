@@ -637,6 +637,12 @@ static struct retro_core_option_v2_definition CORE_OPTION_DEF[] = {
 		NULL, "video",
 		{{"0","Off"},{"1","On"},{NULL,NULL}}, "1"
 	},
+	{
+		"hatarib_boot_alert", "Boot Notification", NULL,
+		"Show notification for reset/reboot.",
+		NULL, "video",
+		{{"0","Off"},{"1","On"},{NULL,NULL}}, "1"
+	},
 	//
 	// Audio
 	//
@@ -1022,13 +1028,8 @@ bool cfg_read_int_pad(int pad, const char* key, int* v)
 
 static void core_config_hard(CNF_PARAMS *param, const char* image, int ht)
 {
+	int i = 0;
 	retro_log(RETRO_LOG_INFO,"core_config_hard(%p,'%s',%d)\n",param,image,ht);
-
-	// clear existing drives
-	param->HardDisk.bUseHardDiskDirectories = false;
-	param->Acsi[0].bUseDevice = false;
-	param->Scsi[0].bUseDevice = false;
-	param->Ide[0].bUseDevice = false;
 
 	// set new drive
 	switch(ht)
@@ -1036,26 +1037,49 @@ static void core_config_hard(CNF_PARAMS *param, const char* image, int ht)
 	default:
 	case 0: // GemDOS
 	case 1: // GemDOS (Use 8-bit Filenames)
+		if (param->HardDisk.bUseHardDiskDirectories)
+		{
+			core_signal_error("Only one GemDOS hard drive directory can be used.","");
+			return;
+		}
 		param->HardDisk.bFilenameConversion = (ht == 1);
 		param->HardDisk.bUseHardDiskDirectories = true;
 		strcpy_trunc(param->HardDisk.szHardDiskDirectories[0],image,sizeof(param->HardDisk.szHardDiskDirectories[0]));
 		break;
 	case 2: // ACSI
-		param->Acsi[0].bUseDevice = true;
-		strcpy_trunc(param->Acsi[0].sDeviceFile,image,sizeof(param->Acsi[0].sDeviceFile));
+		while (i < MAX_ACSI_DEVS && param->Acsi[i].bUseDevice) ++i;
+		if (i >= MAX_ACSI_DEVS)
+		{
+			core_signal_error("Too many ACSI drives, max: ",CORE_STRINGIFY(MAX_ACSI_DEVS));
+			return;
+		}
+		param->Acsi[i].bUseDevice = true;
+		strcpy_trunc(param->Acsi[i].sDeviceFile,image,sizeof(param->Acsi[0].sDeviceFile));
 		break;
 	case 3: // SCSI
-		param->Scsi[0].bUseDevice = true;
-		strcpy_trunc(param->Scsi[0].sDeviceFile,image,sizeof(param->Scsi[0].sDeviceFile));
+		while (i < MAX_SCSI_DEVS && param->Scsi[i].bUseDevice) ++i;
+		if (i >= MAX_SCSI_DEVS)
+		{
+			core_signal_error("Too many SCSI drives, max: ",CORE_STRINGIFY(MAX_SCSI_DEVS));
+			return;
+		}
+		param->Scsi[i].bUseDevice = true;
+		strcpy_trunc(param->Scsi[i].sDeviceFile,image,sizeof(param->Scsi[0].sDeviceFile));
 		break;
 	case 4: // IDE (Auto)
 	case 5: // IDE (Byte Swap Off)
 	case 6: // IDE (Byte Swap On)
-		param->Ide[0].bUseDevice = true;
-		strcpy_trunc(param->Ide[0].sDeviceFile,image,sizeof(param->Ide[0].sDeviceFile));
+		while (i < MAX_IDE_DEVS && param->Ide[i].bUseDevice) ++i;
+		if (i >= MAX_IDE_DEVS)
+		{
+			core_signal_error("Too many IDE drives, max: ",CORE_STRINGIFY(MAX_IDE_DEVS));
+			return;
+		}
+		param->Ide[i].bUseDevice = true;
+		strcpy_trunc(param->Ide[i].sDeviceFile,image,sizeof(param->Ide[0].sDeviceFile));
 		{
 			static const BYTESWAPPING BSMAP[3] = { BYTESWAP_AUTO, BYTESWAP_OFF, BYTESWAP_ON };
-			param->Ide[0].nByteSwap = BSMAP[ht-4];
+			param->Ide[i].nByteSwap = BSMAP[ht-4];
 		}
 		break;
 	}
@@ -1063,9 +1087,9 @@ static void core_config_hard(CNF_PARAMS *param, const char* image, int ht)
 
 bool core_config_hard_content(const char* path, int ht)
 {
-	if (!core_first_reset)
+	if (core_hard_content_count >= CORE_HARD_MAX)
 	{
-		core_signal_alert2("Hard drive change requires reset: ",path);
+		core_signal_error("Too many hard drives, maximum: ",CORE_STRINGIFY(CORE_HARD_MAX));
 		return false;
 	}
 
@@ -1081,9 +1105,13 @@ bool core_config_hard_content(const char* path, int ht)
 	}
 
 	core_hard_content = true;
-	core_hard_content_type = ht;
-	strcpy_trunc(core_hard_content_path,path,sizeof(core_hard_content_path));
-	core_config_apply();
+	core_hard_content_type[core_hard_content_count] = ht;
+	strcpy_trunc(core_hard_content_path[core_hard_content_count],path,sizeof(core_hard_content_path[0]));
+	++core_hard_content_count;
+	if (!core_first_reset)
+		core_signal_alert2("Hard drive change requires reset: ",path);
+	else
+		core_config_apply();
 	return true;
 }
 
@@ -1193,6 +1221,7 @@ void core_config_read_newparam()
 	CFG_INT("hatarib_aspect") { if (core_video_aspect_mode != vi) { core_video_aspect_mode = vi; core_video_changed = true; } }
 	CFG_INT("hatarib_pause_osk") core_pause_osk = vi;
 	CFG_INT("hatarib_show_welcome") core_show_welcome = vi;
+	CFG_INT("hatarib_boot_alert") core_boot_alert = vi;
 	CFG_INT("hatarib_samplerate") newparam.Sound.nPlaybackFreq = vi;
 	CFG_INT("hatarib_ymmix") newparam.Sound.YmVolumeMixing = vi;
 	CFG_INT("hatarib_lpf") newparam.Sound.YmLpf = vi;
@@ -1248,7 +1277,16 @@ void core_config_read_newparam()
 	memcpy(newparam.DiskImage.szDiskFileName[1],ConfigureParams.DiskImage.szDiskFileName[1],sizeof(newparam.DiskImage.szDiskFileName[1]));
 	newparam.System.nCpuFreq = ConfigureParams.System.nCpuFreq;
 	if (core_hard_content)
-		core_config_hard(&newparam, core_hard_content_path, core_hard_content_type);
+	{
+		// clear existing drives
+		newparam.HardDisk.bUseHardDiskDirectories = false;
+		for (int i=0; i<MAX_ACSI_DEVS; ++i) newparam.Acsi[i].bUseDevice = false;
+		for (int i=0; i<MAX_SCSI_DEVS; ++i) newparam.Scsi[i].bUseDevice = false;
+		for (int i=0; i<MAX_IDE_DEVS; ++i) newparam.Ide[i].bUseDevice = false;
+
+		for (int i=0; i<core_hard_content_count; ++i)
+			core_config_hard(&newparam, core_hard_content_path[i], core_hard_content_type[i]);
+	}
 }
 
 void config_cycle_cpu_speed(void)

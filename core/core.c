@@ -20,13 +20,13 @@
 // Header size must accomodate core data before the hatari memory snapshot
 // the base savesate for a 1MB ST is about 3.5MB
 // inserting floppies adds to it, they might be as large as 2MB each
+// when paused, expect an extra 0.5MB for OSK screen restore
 // using an 8MB minimum (+ ST memory size over 1MB) accomodates this.
 // The overhead is added to the initial estimate just in case it's not quite enough,
-// and the rounding just makes the file size into a round number,
-// because I thought it was aesthetically pleasing to do so.
+// and the rounding makes the file size into a round number.
 #define SNAPSHOT_HEADER_SIZE   1024
 #define SNAPSHOT_MINIMUM       (8 * 1024 * 1024)
-#define SNAPSHOT_OVERHEAD      (64 * 1024)
+#define SNAPSHOT_OVERHEAD      (1 * 1024 * 1024)
 #define SNAPSHOT_ROUND         (64 * 1024)
 #define SNAPSHOT_VERSION       2
 
@@ -35,7 +35,7 @@
 #define DEBUG_RETRO_SET_ENVIRONMENT   0
 
 // make sure this matches ../info/hatarib.info
-#define CORE_VERSION   "v0.3 unstable preview " SHORTHASH " " __DATE__ " " __TIME__;
+#define CORE_VERSION   "v0.4 unstable preview " SHORTHASH " " __DATE__ " " __TIME__;
 
 // make sure this matches ../info/hatarib.info
 static const char* const CORE_FILE_EXTENSIONS = "st|msa|dim|stx|ipf|ctr|m3u|m3u8|zip|gz|acsi|ahd|vhd|scsi|shd|ide|gem";
@@ -50,6 +50,11 @@ const uint64_t QUIRKS = RETRO_SERIALIZATION_QUIRK_ENDIAN_DEPENDENT;
 // Then run hatary_state_compare.py in your saves folder to compare the timelines.
 #define DEBUG_SAVESTATE_DUMP   0
 
+// Dumps a savestate to the saves folder X frames after starting the core content.
+// Intended for automated comparisons between versions, looking for cross-platform divergence.
+// When using this, disable host mouse and keyboard to prevent input divergence.
+#define DEBUG_SAVESTATE_DUMP_AUTO   0
+
 // Simpler savestate integrity test: whenever a savestate is saved, it will store another state in X frames,
 // and then every savestate restore will compare its own state after X frames. 0 to disable.
 // Try to test with different delays, 1 frame, 10 frames, 100 frames, etc.
@@ -57,11 +62,14 @@ const uint64_t QUIRKS = RETRO_SERIALIZATION_QUIRK_ENDIAN_DEPENDENT;
 // (Usually the DIFF will indicate core_input in this case.)
 #define DEBUG_SAVESTATE_SIMPLE   0
 
+// Will print the savestate section list each time the savestate is saved or restored.
+#define DEBUG_SAVESTATE_LIST   0
+
 // Enable LIBRETRO_DEBUG_SNAPSHOT in memorySnapshot.c to list the the data locations and structure of snapshots.
 // Turn off hatarib_savestate_floppy_modify (Floppy Savestate Safety Save) in the core settings before testing savestates,
 // because it causes bContentsChanged divergence for any floppies that have save files.
 
-#define DEBUG_SAVESTATE   (DEBUG_SAVESTATE_DUMP | DEBUG_SAVESTATE_SIMPLE)
+#define DEBUG_SAVESTATE   (DEBUG_SAVESTATE_DUMP | DEBUG_SAVESTATE_DUMP_AUTO | DEBUG_SAVESTATE_SIMPLE | DEBUG_SAVESTATE_LIST)
 
 //
 // Libretro
@@ -96,6 +104,7 @@ extern void core_flush_audio(void);
 extern int core_save_state(void);
 extern int core_restore_state(void);
 extern void Statusbar_SetMessage(const char *msg);
+extern void core_statusbar_update(void);
 
 //
 // Available to Hatari
@@ -112,6 +121,7 @@ int core_crashtime = 10;
 int core_crash_frames = 0; // reset to 0 whenever CORE_RUNFLAG_HALT
 bool core_option_soft_reset = false;
 bool core_show_welcome = true;
+bool core_boot_alert = true;
 bool core_first_reset = true;
 bool core_perf_display = false;
 bool core_midi_enable = true;
@@ -119,7 +129,6 @@ bool core_midi_enable = true;
 // internal
 
 bool content_override_set = false;
-bool core_video_restore = false;
 
 uint32_t blank_screen[320*200] = { 0 }; // safety buffer in case frame was never been provided
 
@@ -141,6 +150,7 @@ int core_audio_samplerate_new = 48000;
 int core_audio_samples_pending = 0;
 bool core_video_changed = false;
 bool core_rate_changed = false;
+bool core_statusbar_restore = false;
 // fps and samplerate update a "new" variable,
 // which is later transferred to the actual variable.
 // This is because they can sometimes be updated multiple times
@@ -645,6 +655,9 @@ static int debug_snapshot_buffer_size = 0;
 static int debug_snapshot_countdown = 0;
 static bool debug_snapshot_read = false;
 #endif
+#if DEBUG_SAVESTATE_DUMP_AUTO
+static int debug_savestate_dump_auto = 0;
+#endif
 
 static void core_snapshot_open_internal(void)
 {
@@ -744,6 +757,13 @@ void core_snapshot_seek(int pos)
 	if (snapshot_pos > snapshot_max) snapshot_max = snapshot_pos;
 }
 
+void core_snapshot_skip(int len)
+{
+	//retro_log(RETRO_LOG_DEBUG,"core_snapshot_skip(%d)\n",len);
+	snapshot_pos += len;
+	if (snapshot_pos > snapshot_max) snapshot_max = snapshot_pos;
+}
+
 static void snapshot_buffer_prepare(size_t size, void* data)
 {
 	if (size > snapshot_size)
@@ -787,6 +807,8 @@ static void core_serialize_internal(void* x, size_t size)
 void core_serialize_uint8(uint8_t *x) { core_serialize_internal(x,sizeof(uint8_t)); }
 void core_serialize_int32(int32_t *x) { core_serialize_internal(x,sizeof(int32_t)); }
 void core_serialize_uint32(uint32_t *x) { core_serialize_internal(x,sizeof(uint32_t)); }
+void core_serialize_data(void* d, size_t size) { core_serialize_internal(d,size); }
+void core_serialize_skip(size_t size) { core_snapshot_skip(size); }
 
 static bool core_serialize(bool write)
 {
@@ -864,6 +886,12 @@ static bool core_serialize(bool write)
 		core_audio_samplerate_new = core_audio_samplerate;
 	}
 
+	// core OSK screen, append if needed
+	#if DEBUG_SAVESTATE
+		core_debug_snapshot("core_osk_screen");
+	#endif
+	core_osk_serialize_screen();
+
 	// finish
 	#if DEBUG_SAVESTATE
 		core_debug_snapshot("END");
@@ -903,12 +931,16 @@ static bool core_serialize(bool write)
 		}
 	}
 #endif
+#if DEBUG_SAVESTATE_LIST
+	core_debug_int("core_serialize: ",write);
+	core_debug_snapshot_sections_list();
+#endif
 
 	//retro_log(RETRO_LOG_DEBUG,"core_serialized: %d of %d used\n",snapshot_max,snapshot_size);
 	if (result != 0)
 	{
 		snapshot_error = true;
-		retro_log(RETRO_LOG_ERROR,"hatari state save/restore returned with error.\n");
+		retro_log(RETRO_LOG_ERROR,"hatari state save/restore error: %d bytes\n",snapshot_size);
 	}
 	return !snapshot_error;
 }
@@ -1027,8 +1059,10 @@ RETRO_API void retro_init(void)
 	//Log_SetTraceOptions("video_vbl,video_sync");
 
 	core_hard_content = false;
+	core_hard_content_count = 0;
 	core_first_reset = true;
 	core_runflags = 0;
+	core_statusbar_restore = false;
 	main_init(1,(char**)argv);
 
 	// this will be fetched and applied via retro_get_system_av_info before the first frame begins
@@ -1036,7 +1070,6 @@ RETRO_API void retro_init(void)
 	core_audio_samplerate = core_audio_samplerate_new;
 	core_video_changed = false;
 	core_rate_changed = false;
-	core_video_restore = false;
 
 	core_audio_hold_remain = 0;
 	core_audio_last[0] = 0;
@@ -1143,10 +1176,9 @@ RETRO_API void retro_run(void)
 	//   would have done this directly after video_cb,
 	//   but RetroArch seems to display what is given at video_cb time only when running,
 	//   but when in menus or paused (p) it displays the contents of the buffer at exit of retro_run instead?
-	if (core_runflags & CORE_RUNFLAG_OSK)
+	if (core_runflags & CORE_RUNFLAG_OSK || core_osk_screen_restore)
 	{
 		core_osk_restore(core_video_buffer,core_video_w,core_video_h,core_video_pitch);
-		core_video_restore = false;
 	}
 
 	// handle any pending configuration updates
@@ -1176,7 +1208,7 @@ RETRO_API void retro_run(void)
 		PERF_START(PERF_RUN_RESET);
 		core_config_reset(); // can apply boot parameters (e.g. CPU Freq)
 		bool cold = core_runflags & CORE_RUNFLAG_RESET_COLD;
-		if (!core_first_reset)
+		if (!core_first_reset && core_boot_alert)
 			core_signal_alert(cold ? "Cold Boot" : "Warm Boot");
 		else
 			core_first_reset = false;
@@ -1240,11 +1272,17 @@ RETRO_API void retro_run(void)
 		core_video_changed = false;
 	}
 
+	// statusbar may need to be redrawn
+	if (core_statusbar_restore)
+	{
+		core_statusbar_update();
+		core_statusbar_restore = false;
+	}
+
 	// draw overlay
 	if (core_runflags & CORE_RUNFLAG_OSK)
 	{
 		core_osk_render(core_video_buffer,core_video_w,core_video_h,core_video_pitch);
-		core_video_restore = true;
 	}
 
 	// performance counters (video_cb may block, so we don't want to include it in our performance measure)
@@ -1371,6 +1409,38 @@ RETRO_API void retro_run(void)
 		}
 	}
 #endif
+#if DEBUG_SAVESTATE_DUMP_AUTO
+	if (debug_savestate_dump_auto > 0)
+	{
+		--debug_savestate_dump_auto;
+		if (debug_savestate_dump_auto == 0)
+		{
+			snapshot_buffer_prepare(snapshot_size,NULL);
+			core_serialize(true);
+			char name[256] = "hatarib_auto_";
+			get_image_path(0,name+13,sizeof(name)-14);
+			strcat_trunc(name,".dump",sizeof(name));
+			corefile* f = core_file_open_save(name,CORE_FILE_WRITE);
+			if (f)
+			{
+				core_file_write(snapshot_buffer,1,snapshot_size,f);
+				// section pos/name suffix
+				for (int i=0; i<debug_snapshot_section_count; ++i)
+				{
+					core_file_write(&debug_snapshot_section_pos[i],sizeof(int),1,f);
+					int sl = 0;
+					if ((i+1) < debug_snapshot_section_count) sl = debug_snapshot_section_pos[i+1] - debug_snapshot_section_pos[i];
+					core_file_write(&sl,sizeof(int),1,f);
+					char pn[9] = "        ";
+					strcpy_trunc(pn,debug_snapshot_section_name[i],sizeof(pn));
+					core_file_write(pn,1,sizeof(pn)-1,f);
+				}
+				core_file_close(f);
+				core_signal_alert2("AUTO DUMP: ",name);
+			}
+		}
+	}
+#endif
 }
 
 RETRO_API size_t retro_serialize_size(void)
@@ -1462,6 +1532,10 @@ RETRO_API bool retro_load_game(const struct retro_game_info *game)
 		snapshot_size += (SNAPSHOT_ROUND - (snapshot_size % SNAPSHOT_ROUND));
 
 	retro_memory_maps();
+
+#if DEBUG_SAVESTATE_DUMP_AUTO
+	debug_savestate_dump_auto = DEBUG_SAVESTATE_DUMP_AUTO;
+#endif
 
 	return true;
 }

@@ -4,6 +4,7 @@
 // but not with Hatari. Avoids a full rebuild for each change.
 
 #define   CORE_ARRAY_SIZE(a_)   (sizeof(a_)/sizeof(a_[0]))
+#define   CORE_STRINGIFY(a_) #a_
 
 // adds a config option to dump all input polling to the log every frame
 #define CORE_INPUT_DEBUG   0
@@ -20,10 +21,12 @@ extern bool core_option_soft_reset;
 extern bool core_serialize_write; // current serialization direction
 extern int core_crashtime;
 extern bool core_show_welcome;
+extern bool core_boot_alert;
 extern bool core_first_reset;
 extern bool core_perf_display;
 extern bool core_midi_enable;
 extern int core_video_fps;
+extern bool core_statusbar_restore;
 
 extern bool core_midi_read(uint8_t* data);
 extern bool core_midi_write(uint8_t data);
@@ -32,15 +35,20 @@ extern bool core_midi_write(uint8_t data);
 extern void core_serialize_uint8(uint8_t *x);
 extern void core_serialize_int32(int32_t *x);
 extern void core_serialize_uint32(uint32_t *x);
+extern void core_serialize_data(void* d, size_t size);
+extern void core_serialize_skip(size_t size);
 
 // core_file.c
 extern void strcpy_trunc(char* dest, const char* src, unsigned int len);
 extern void strcat_trunc(char* dest, const char* src, unsigned int len);
 extern bool has_extension(const char* fn, const char* exts); // case insensitive, exts = series of null terminated strings, then an extra 0 to finish the list
+// maximum supported hard drives through M3U or extra content
+#define CORE_HARD_MAX 4
 extern int core_hard_readonly;
 extern bool core_hard_content;
-extern int core_hard_content_type;
-extern char core_hard_content_path[2048];
+extern int core_hard_content_type[CORE_HARD_MAX];
+extern char core_hard_content_path[CORE_HARD_MAX][2048];
+extern int core_hard_content_count;
 
 extern uint8_t* core_read_file(const char* filename, unsigned int* size_out);
 extern bool core_write_file(const char* filename, unsigned int size, const uint8_t* data);
@@ -110,6 +118,7 @@ extern void core_disk_drive_reinsert(void); // used after cold reboot
 extern void core_disk_swap(void); // convenience for: eject, next disk, insert
 
 extern unsigned get_num_images(void);
+extern bool get_image_path(unsigned index, char* path, size_t len);
 extern bool get_image_label(unsigned index, char* label, size_t len);
 
 // simple file save, as a complete buffer
@@ -213,6 +222,7 @@ extern void core_osk_input(uint32_t osk_new, uint32_t osk_now); // bitfield of n
 extern void core_osk_render(void* video_buffer, int w, int h, int pitch); // call to render overlay over video_buffer
 extern void core_osk_restore(void* video_buffer, int w, int h, int pitch); // call to restore buffer before overlay
 extern void core_osk_serialize(void);
+extern void core_osk_serialize_screen(void);
 extern void core_osk_init(void);
 
 extern int core_pause_osk; // pause screen appearance setting
@@ -222,6 +232,7 @@ extern int32_t core_osk_press_len; // frames to press key
 extern int32_t core_osk_repeat_delay; // ms before direction repeat
 extern int32_t core_osk_repeat_rate; // ms between direction repeat
 extern uint32_t core_osk_button_last;
+extern bool core_osk_screen_restore;
 
 #define CORE_OSK_OFF        0
 #define CORE_OSK_PAUSE      1

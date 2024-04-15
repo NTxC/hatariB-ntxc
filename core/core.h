@@ -43,6 +43,9 @@ extern bool core_rate_changed;
 extern int16_t core_audio_buffer[];
 #endif
 
+// this should be less than FILENAME_MAX used in configuration and floppy
+#define CORE_MAX_FILENAME   256
+
 // print to Libretro log
 extern void core_debug_msg(const char* msg);
 extern void core_debug_int(const char* msg, int num); // msg followed by num

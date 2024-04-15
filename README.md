@@ -3,14 +3,13 @@
 A [Libretro](https://www.libretro.com/) core integrating the [Hatari](https://hatari.tuxfamily.org/) emulation of Atari ST, STE, TT, and Falcon computers.
 
 * Current Build Platforms:
-  * Windows 64-bit
-  * Windows 32-bit
+  * Windows 64-bit, 32-bit
   * Ubuntu
-  * MacOS
-  * Raspberry Pi OS 32-bit
-  * Raspberry Pi OS 64-bit
+  * MacOS 11.0 Apple Arm, 10.13 Intel 64-bit
+  * Raspberry Pi OS 64-bit, 32-bit
+  * Android 64-bit, 32-bit
 * Current Release:
-  * **[hatariB v0.2](https://github.com/bbbradsmith/hatariB/releases/tag/0.2)** - 2023-09-07
+  * **[hatariB v0.3](https://github.com/bbbradsmith/hatariB/releases/tag/0.3)** - 2024-04-15
 * Unstable Build:
   * [Download](https://nightly.link/bbbradsmith/hatariB/workflows/build/main)
 * Recent Builds:
@@ -44,14 +43,28 @@ If you have trouble getting the builds to work, you can turn on logging under *S
 ### MacOS
 
 Installing for MacOS requires a different method for giving permission:
-* After downloading the core, right click on `cores/hatarib.dylib` and open it, here you can give it permission to run.
-* On MacOS the cores and info folders are likely at `Users/[username]/Library/Application Support/RetroArch`.
+* On older versions of MacOS, you may be able to right click (or ctrl+click) on `cores/hatarib.dylib` and open it, after which you can give it permission to run.
+* On newer versions, you may have to [remove a download quarantine](https://cycling74.com/articles/using-unsigned-max-externals-on-mac-os-10-15-catalina):
+  * Open the Terminal utility, navigate to the folder where `hatarib.dylib` was extracted.
+  * Type: `xattr -d com.apple.quarantine hatarib.dylib`
+  * Type: `chmod +x hatarib.dylib`
+  * To make it easier, instead of navigating to the directory, instead of typing `hatarib.dylib` you can drag it into the terminal window, which will automatically paste its full path there.
 
-The `capsimg.so` for IPF support can be placed next to the `hatarib.dylib` file, but it also must be given permission, in [a slightly more difficult way](https://cycling74.com/articles/using-unsigned-max-externals-on-mac-os-10-15-catalina):
-* Open the Terminal utility.
-* You can drag the `capsimg.so` into the terminal to copy its filename path there.
-* Use `xattr` to remove the quarantine:
-  * `xattr -d com.apple.quarantine Users/[username]/Library/Application\ Support/RetroArch/cores/capsimg.so`
+Once the file is un-quarantined, and given permission to execute, you can copy it to your RetroArch cores folder.
+* On MacOS the cores and info folders are usually at: `Users/[username]/Library/Application Support/RetroArch`.
+
+The `capsimg.so` for IPF support can be placed next to the `hatarib.dylib` file, but it must also be given permission in the same way.
+
+### Android
+
+You can use this core with the [latest RetroArch APK](https://www.retroarch.com/?page=platforms), or with the older *RetroArch Plus* build from the Google Play store.
+
+* After setting up RetroArch, place `hatarib.so` in your RetroArch downloads folder. You can use the *Directory* settings to find it, or choose a custom downloads location. Go to *Load Core* and choose *Install or Restore a Core* to install it from the downloads folder. If installed correctly, you should now be able to load it and start it.
+* The included `hatarib.info` file allows the core to be associated with content files, but it can be inconvenient to add this to your RetroArch setup. The easiest alternative is to rename the core to `hatari_libretro.so` before installing so that it will instead use the existing info file belonging to the [other Hatari core](https://github.com/libretro/hatari).
+* If you want to be more thorough, use the *Directory* settings to relocate *Core Info* to a folder that you can access and place it there. However, I've found that *Update Core Info Files* in the *Online Updater* doesn't work with a custom directory, so I had to manually download and place the info files for other cores there. If you rename the RetroArch APK to be a zip file, you can open it up and find the info files there inside the contained assets folder.
+* To delete the core, you can go to *Core > Manage Cores* in the settings.
+* It is not yet verified whether IPF files can be made to work by installing `capsimg.so`. I believe the way to do this would be to build your own RetroArch APK from source code, and include it in the `lib` folder inside, but I have not attempted this. It might also be possible to do this after install with a rooted device. Please let me know if you've tried it.
+* I would recommend disabling *Input > Host Mouse Enabled* in the core options, as using a touchscreen overlay gamepad will also generate host mouse inputs at the same time. *Retropad 1 > Left Analog Stick* can be set to *Mouse* to allow mouse control that way instead.
 
 ### Manual Build
 
@@ -133,7 +146,7 @@ See [DEVELOP.md](DEVELOP.md) for more details.
   * TOS ROM: TOS, IMG, ROM, BIN
   * Cartridge: IMG, ROM, BIN, CART
   * TOS, Cartridge, and Hard disk files should be placed in **system/hatarib/**.
-  * When loading multiple disks, the best method is to use M3U playlists to specify all needed disks at once during *Load Content*. Information: [M3U file tutorial](https://docs.retroachievements.org/Multi-Disc-Games-Tutorial/). This can also include a hard disk image.
+  * When loading multiple disks, the best method is to use M3U playlists to specify all needed disks at once during *Load Content*. This can also include hard disk images. Information: [M3U file tutorial](https://docs.retroachievements.org/Multi-Disc-Games-Tutorial/).
   * *Load New Disk* can add additional disks while running, but has several caveats, especially regarding savestates. See below.
   * The first two disks of an M3U list will be loaded into drive A and B at startup.
   * Libretro only has an interface for one disk drive, but you can use the Select button to switch between whether the Disc Control menu currently shows drive A or drive B.
@@ -143,30 +156,32 @@ See [DEVELOP.md](DEVELOP.md) for more details.
   * A permanent hard disk in your *system/* folder can be configured from the *System* core options menu, but this setting can be overridden by a temporary hard disk loaded from the content menu, or using an M3U playlist.
   * *GemDOS* type hard disks can select a subdirectory within *system/hatarib/* to use as a simulated drive.
   * Permanent hard disks:
-    * A *GemDOS* folder can represent multiple paritions by having its base directory contain only   single-letter folder names representing drive letters. *C/*, *D/*, etc.
+    * A *GemDOS* folder can represent multiple paritions by having its base directory contain only single-letter folder names representing drive letters. *C/*, *D/*, etc.
     * *ACSI*, *SCSI* and *IDE* hard disks use a binary image file chosen from *system/hatarib/*.
   * Temporary hard disks:
-    * You can also load a temporary hard disk image directly as content, or through an M3U playlist. The type of hard disk is selected by the filename extension.
+    * You can also load one or more temporary hard disk images directly as content, or through an M3U playlist. The type of hard disk is selected by the filename extension.
     * *ACSI* images use an *ACSI*, *AHD* or *VHD* extension.
     * *SCSI* images use an *SCSI* or *SHD* extension.
     * *IDE* images use an *IDE* extension.
     * *GemDOS* folders use a dummy file with a *GEM* extension. Place this file next to a folder with the same name. The file can be empty, as its contents will not be used.
     * The *GemDOS* and *IDE* hard disk types can be adjusted futher in the core options.
-    * An M3U image can load a temporary hard disk image. Simply add another line with the name of the hard disk image, after any floppy disks.
-  *   Hard disks are read-only by default for safety. This can be disabled in the *System > Hard Disk Write Protect* core option. On some Libretro platforms, temporary hard drives may not be writable due to filesystem security settings.
+    * An M3U image can load one or more temporary hard disk images. Simply add another line with the name of the hard disk image, after any floppy disks.
+  * Hard disks are read-only by default for safety. This can be disabled in the *System > Hard Disk Write Protect* core option. On some Libretro platforms, temporary hard drives may not be writable due to filesystem security settings.
   * Because a hard disk image is not included with a savestate, file writes that are interrupted may cause corruption of the disk image's filesystem.
   * Later TOS versions (or EmuTOS) are recommended when using hard drives, as TOS 1.0 has only limited support for them. Without EmuTOS you may need to use a hard disk driver.
-  * Using more than one hard disk image at a time is unsupported, though a single image can have multiple partitions with individual drive letters.
+  * Using more than one permanent hard disk image at a time is unsupported, though a single image can have multiple partitions with individual drive letters. An M3U can be used for multiple temporary hard disks.
   * If you need an easy way to switch between permanent hard disk configurations, you could create a "boot" floppy disk to go along with the hard disk, and use *Manage Core Options > Save Game Options* to create a settings override associated with that floppy.
   * See [Hatari's Manual: Hard Disk Support](https://hatari.tuxfamily.org/doc/manual.html#Hard_disk_support) for further information.
 * M3U playlists and Auto-Run:
   * M3U playlists can be used to specify a collection of disk images, accessible via *Disc Control* in the *Quick Menu* of RetroArch.
   * Each line of the M3U is the filename of a disk image, relative to the M3U file.
   * A line starting with `#` will normally be ignored, allowing you to write a comment on the rest of that line, if needed.
-  * The first 2 disk images will be loaded into drives A and B when the content is opened.
-  * A temporary hard disk image can also be listed in the M3U. Place this line after any floppy disk mages.
+  * The first 2 disk images will be loaded into drives A and B when the content is opened, but this behaviour can be overridden.
+    * A temporary hard disk image can also be listed in the M3U. Place hard disks after any floppy disk mages.
   * `#AUTO:filename` can be used to automatically run a TOS file at boot. This is the same as [Hatari's --auto command line option](https://hatari.tuxfamily.org/doc/manual.html#General_options). **TOS 1.04** or later is required to use this feature. Example: `#AUTO:C:\GAMES\JOUST.PRG`
-  * If using the `#AUTO` feature, technically `#EXTM3U` should be added as the first line of the M3U to indicate this is an [Extended M3U](https://en.wikipedia.org/wiki/M3U#Extended_M3U), but hatariB will not enforce this.
+  * `#BOOTA:number` can be used to select an image from the list to insert into drive A at boot. 1 is the first image in the list. 0 will leave the drive empty.
+  * `#BOOTB:number` selects the image for drive B at boot.
+  * If using the `#AUTO`/`#BOOTA`/`#BOOTB` features, technically `#EXTM3U` should be added as the first line of the M3U to indicate this is an [Extended M3U](https://en.wikipedia.org/wiki/M3U#Extended_M3U), but hatariB will not enforce this.
   * *Manage Core Options > Save Game Options* can be used to associate other core options with an M3U playlist.
 * Saving:
   * When a modified floppy disk is ejected, or the core is closed, a modified copy of that disk image will be written to the *saves/* folder.
@@ -228,7 +243,6 @@ See [DEVELOP.md](DEVELOP.md) for more details.
   * Make sure your core options match, especially the TOS image, before attempting to connect.
   * The IPF format appears to have drive state that cannot be completely restored. Netplay may stutter during activity if using IPF disk images due to savestate divergence.
 * Quirks:
-  * Restoring a savestate, or using netplay/run-ahead into the pause or one-shot keyboard will have an outdated/blank background until unpaused, as Hatari can't rebuild the image until it runs a frame. We could consider adding the framebuffer to the savestate to prevent this, though it would significantly increase the data size.
   * If the on-screen keyboard confirm/cancel buttons aren't mapped to dedicated buttons, you might end up suddenly holding the underlying button when the keyboard closes. (Inputs from buttons mapped to the on-screen keyboard are suppressed while it remains open.)
   * Though the on-screen keyboard is available in [several language layouts](https://tho-otto.de/keyboards/), for your physical keyboard there aren't any direct configuration options, currently. RetroArch ignores the OS keyboard layout, and [all keys report as-if in US layout](https://github.com/libretro/RetroArch/issues/13838) (e.g. German Z reports as RETROK_y). Because of this, if you pick a TOS that matches your keyboard language, the mappings are likely to be mostly compatible. Otherwise, if you need finer control of the mapping, RetroArch's *Input* settings can be used to remap individual keys.
   * The *Floppy Disk List* pause screen won't display unicode filenames correctly, though they can still be viewed through RetroArch's *Disk Control* menu when the selected drive is ejected.
@@ -236,10 +250,13 @@ See [DEVELOP.md](DEVELOP.md) for more details.
   * You can use *Load New Disk* or *M3U* playlists to load the same floppy multiple times, or multiple floppies with the same name. This mostly works okay, but a savestate restore might be unable to identify which of them was actually inserted.
   * If *IPF* support is enabled, an *M3U* playlist can also be used to load the *RAW* format supported by that library. I kept it out of the associated file types list because I have not yet encountered dumps in this format.
   * The *Advanced > CPU Clock Rate* core option is only applied at boot/reset, but you can *CPU Speed* to a gamepad button in the *RetroPad* core options to change it while running.
+  * RetroArch may report "failed to set last used disc", because it tries to remember the last inserted disk for the next time you load the same game. This makes no sense for the Atari ST, where games normally boot from one specific disk only, but there seems to be no way to tell RetroArch not to display an error message for this.
 
 ## History
 
-* hatariB v0.3 - Unreleased
+* hatariB v0.4 - Unreleased
+  * No changes yet.
+* [hatariB v0.3](https://github.com/bbbradsmith/hatariB/releases/tag/0.3) - 2024-04-15
   * On-screen keyboard improvements:
     * Can now hold the key continuously.
     * Auto-repeat for a held direction.
@@ -257,6 +274,14 @@ See [DEVELOP.md](DEVELOP.md) for more details.
   * Border cropping settings now apply to Falcon.
   * Hard disk images can be loaded as content.
   * M3U can be used to auto-run a program at boot.
+  * Fixes to savestates on non-Windows platforms.
+  * Attempting to make savestates as cross-platform compatible as possible.
+  * Option to disable boot notification.
+  * Fixed out-of-date screen image during pause/one-shot and savestate/netplay/run-ahead.
+  * Android builds.
+  * Multiple hard disk support.
+  * MacOS Fat build (Intel 64-bit, Apple Arm).
+  * M3U can be used to select disk image or empty drive at boot.
 * [hatariB v0.2](https://github.com/bbbradsmith/hatariB/releases/tag/0.2) - 2023-09-07
   * Second beta test version.
   * IPF support via dynamic loading of capsimg library.
@@ -286,6 +311,9 @@ This project includes [zlib](https://zlib.net/) under the [zlib license](https:/
 ## Authors
 
 This Libretro core was begun by [Brad Smith](https://github.com/bbbradsmith).
+
+Other contributors:
+* [DJM75](https://github.com/DJM75) - [Android build](https://github.com/bbbradsmith/hatariB/issues/26).
 
 Authors of incorporated works:
 * [Hatari](hatari/doc/authors.txt)

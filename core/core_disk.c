@@ -10,18 +10,17 @@
 #include "../hatari/src/includes/unzip.h"
 
 #define MAX_DISKS 32
-#define MAX_FILENAME 256
 
 struct disk_image
 {
 	// primary file
 	uint8_t* data;
 	unsigned int size;
-	char filename[MAX_FILENAME];
+	char filename[CORE_MAX_FILENAME];
 	// secondary file (used for STX save)
 	uint8_t* extra_data;
 	unsigned int extra_size;
-	char extra_filename[MAX_FILENAME];
+	char extra_filename[CORE_MAX_FILENAME];
 	// whether the file has a save
 	bool saved;
 };
@@ -37,6 +36,7 @@ static unsigned int image_index[2];
 static bool image_insert[2];
 static unsigned int image_count;
 static int initial_image;
+static int boot_index[2];
 
 //
 // Hatari interface
@@ -72,6 +72,8 @@ void disks_clear()
 	// Hatari ejects both disks
 	core_floppy_eject(0);
 	core_floppy_eject(1);
+	boot_index[0] = -1;
+	boot_index[1] = -1;
 }
 
 //
@@ -115,7 +117,7 @@ static bool set_eject_state_drive(bool ejected, int d)
 		disks[image_index[d]].data, disks[image_index[d]].size,
 		disks[image_index[d]].extra_data, disks[image_index[d]].extra_size))
 	{
-		static char floppy_error_msg[MAX_FILENAME+256];
+		static char floppy_error_msg[CORE_MAX_FILENAME+256];
 		struct retro_message_ext msg;
 		snprintf(floppy_error_msg, sizeof(floppy_error_msg), "%c: disk failure: %s",d?'B':'A',disks[image_index[d]].filename);
 		msg.msg = floppy_error_msg;
@@ -287,6 +289,21 @@ static bool load_m3u(uint8_t* data, unsigned int size, const char* m3u_path, uns
 				const char* auto_start = line+6;
 				while (*auto_start == ' ' || *auto_start == '\t') ++auto_start; // skip leading whitespace
 				core_auto_start(auto_start);
+			}
+			else if (lp != 0 && (!strncasecmp(line,"#BOOTA:",7) || !strncasecmp(line,"#BOOTB:",7))) // EXTM3U BOOTA/BOOTB directive
+			{
+				const char* boot = line+7;
+				int d = line[5] - 'A';
+				while (*boot == ' ' || *boot == '\t') ++boot;
+				if (*boot == 0)
+				{
+					boot_index[d] = 0; // empty drive
+				}
+				else
+				{
+					boot_index[d] = strtol(boot,NULL,10);
+					if (boot_index[d] < 0) boot_index[d] = 0; // treat negative values as empty
+				}
 			}
 			// ready for next line
 			lp = 0;
@@ -505,7 +522,7 @@ static bool load_hard(const char* path, const char* filename, unsigned index, co
 {
 	retro_log(RETRO_LOG_INFO,"load_hard('%s','%s',%d,'%s')\n",path?path:"NULL",filename?filename:"NULL",index,ext);
 
-	strcpy_trunc(disks[index].filename,"<HD>",MAX_FILENAME);
+	strcpy_trunc(disks[index].filename,"<HD>",CORE_MAX_FILENAME);
 	strcat_trunc(disks[index].filename,filename,sizeof(disks[index].filename));
 
 	// find the base path
@@ -628,10 +645,10 @@ static bool replace_image_index(unsigned index, const struct retro_game_info* ga
 		}
 		if (ext && !strcasecmp(ext,"stx")) // STX has a secondary save file used as an overlay
 		{
-			strcpy_trunc(disks[index].extra_filename,path,MAX_FILENAME);
+			strcpy_trunc(disks[index].extra_filename,path,CORE_MAX_FILENAME);
 			int l = strlen(disks[index].extra_filename);
 			if (l >= 3) disks[index].extra_filename[l-3] = 0;
-			strcat_trunc(disks[index].extra_filename,"wd1772",MAX_FILENAME);
+			strcat_trunc(disks[index].extra_filename,"wd1772",CORE_MAX_FILENAME);
 			unsigned int extra_size = 0;
 			uint8_t* extra_data = core_read_file_save(disks[index].extra_filename,&extra_size);
 			if (extra_data != NULL)
@@ -699,7 +716,7 @@ static bool replace_image_index(unsigned index, const struct retro_game_info* ga
 	}
 	else
 	{
-		strcpy_trunc(disks[index].filename,path,MAX_FILENAME);
+		strcpy_trunc(disks[index].filename,path,CORE_MAX_FILENAME);
 	}
 	return true;
 }
@@ -728,7 +745,7 @@ static bool set_initial_image(unsigned index, const char* path)
 	return false;
 }
 
-static bool get_image_path(unsigned index, char* path, size_t len)
+bool get_image_path(unsigned index, char* path, size_t len)
 {
 	//retro_log(RETRO_LOG_DEBUG,"get_image_path(%d,%p,%d)\n",index,path,(int)len);
 	if (index >= MAX_DISKS) return false;
@@ -813,33 +830,68 @@ void core_disk_load_game(const struct retro_game_info *game)
 	add_image_index(); // add one disk
 	replace_image_index(0,game); // load it there (may load multiple if M3U/Zip)
 
-	// ensure initial image has data, if possible (avoids selecting hard disk or other invalid image)
-	for (int i=0; i<2; ++i) // two passes to be thorough, in case initial_image is not 0
+	// out of bounds = empty drive
+	for (int i=0; i<2; ++i)
 	{
-		while (initial_image < image_count && disks[initial_image].data == NULL) ++initial_image;
-		if (initial_image >= image_count) initial_image = 0;
+		if (boot_index[i] > (int)image_count) boot_index[i] = 0;
 	}
-	// insert first disk
-	set_image_index(initial_image);
-	set_eject_state(false); // insert it
 
-	// insert second disk if available
-	if (core_disk_enable_b)
+	// fill drives selected by #BOOTA/#BOOTB
+	// reverse order gives BOOTA precedence if they were both the same
+	if (boot_index[1] > 0 && core_disk_enable_b)
 	{
-		int second_image = initial_image + 1;
-		for (int i=0; i<2; ++i)
+		drive = 1;
+		set_image_index(boot_index[1]-1);
+		set_eject_state(false);
+	}
+	if (boot_index[0] > 0)
+	{
+		drive = 0;
+		set_image_index(boot_index[0]-1);
+		set_eject_state(false);
+		initial_image = image_index[0];
+	}
+
+	// automatic boot disk selection
+	if (boot_index[0] < 0)
+	{
+		// ensure initial image has data, if possible (avoids selecting hard disk or other invalid image)
+		for (int i=0; i<2; ++i) // two passes, in case initial_image is not 0
 		{
-			while(second_image < image_count && disks[second_image].data == NULL) ++second_image;
-			if (second_image >= image_count) second_image = 0;
+			while (initial_image < image_count &&
+				(disks[initial_image].data == NULL || (image_insert[1] == true && initial_image == image_index[1])))
+				++initial_image;
+			if (initial_image >= image_count) initial_image = 0;
 		}
-		if (second_image != initial_image && disks[second_image].data != NULL)
+		// insert first disk, if it's not already the second disk
+		if (image_insert[1] == false || (initial_image != image_index[1]))
+		{
+			drive = 0;
+			set_image_index(initial_image);
+			set_eject_state(false);
+		}
+	}
+
+	// automatic second disk selection
+	if (boot_index[1] < 0 && core_disk_enable_b)
+	{
+		int second_image = 0;
+		while(second_image < image_count &&
+			(disks[second_image].data == NULL || (image_insert[0] == true && second_image == image_index[0])))
+			++second_image;
+		if (second_image >= image_count) second_image = 0;
+		// insert second disk, if it exists, and it's not already inserted in drive A
+		if (disks[second_image].data != NULL &&
+			(image_insert[0] == false || (second_image != image_index[0])))
 		{
 			drive = 1;
 			set_image_index(second_image);
 			set_eject_state(false);
-			drive = 0;
 		}
 	}
+
+	// set initial drive
+	drive = 0;
 }
 
 void core_disk_unload_game(void)
@@ -1044,7 +1096,7 @@ bool core_disk_save(const char* filename, uint8_t* data, unsigned int size, bool
 
 void* disk_save_advanced_file = NULL;
 char disk_save_advanced_path[2048] = "";
-char disk_save_advanced_filename[MAX_FILENAME] = "";
+char disk_save_advanced_filename[CORE_MAX_FILENAME] = "";
 
 // buffer to 
 uint8_t* disk_save_advanced_buffer = NULL;

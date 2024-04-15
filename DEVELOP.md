@@ -106,6 +106,10 @@ Otherwise there are minor changes to the CMake build files, each marked with a c
       * `Midi.bEnableMidi = true` - Allows MIDI signals to be sent through Libretro's MIDI interface.
     * Remove `File_MakeAbsoluteSpecialName` path conversions, which modify the paths we provide directly. Since all file access is through our core's file system, absolute paths are inappropriate. This also prevents Hatari from making modifications to the paths which might have caused a reset check, disk re-insertion, etc. on options change.
   * Saved `MachineClocks` (from clocks_timings.c) to prevent state divergence.
+  * Use standardized path length for snapshot of filenames.
+  * Remove unsupported Lilo and DiskZip paths.
+* **hatari/src/cfgopts.c**
+  * Suppress unused variable warning.
 * **hatari/src/crossbar.c**
   * Removed `Crossbar_Recalculate_Clocks_Cycles()` from savestate restore because it seemed to be unnecessary and caused state divergence.
 * **hatari/src/cycInt.c**
@@ -131,6 +135,7 @@ Otherwise there are minor changes to the CMake build files, each marked with a c
   * Provide extern access to core file system in header.
   * Use added `FDC_FloppyInsertRestore` to restore some FDC state after savestate restore re-insertion.
   * Prevent extra write to disks when the safety savestate option is disabled for faster restore.
+  * Use standardized path length for snapshot of filenames.
 * **hatari/src/floppy_ipf.c**
   * Use core's file system to load floppy image.
   * Convert implicit capsimg linking to one loaded at runtime if available.
@@ -150,7 +155,7 @@ Otherwise there are minor changes to the CMake build files, each marked with a c
 * **hatari/src/includes/hdc.h**
   * Use core's file system to provide ACSI/SCSI image hard disk support.
   * Replace `FILE` with `corefile`.
-  * Unused variable warning suppression for `ENABLE_TRACING`.
+  * Unused variable/function warning suppression for `ENABLE_TRACING`.
 * **hatari/src/ide.c**
   * Use core's file system to provide IDE image hard disk support.
   * File locking is not directly provided by the virtual file system (though the host OS might do it automatically).
@@ -204,6 +209,8 @@ Otherwise there are minor changes to the CMake build files, each marked with a c
   * Suppress saving `DebugUI` information.
   * Add `LIBRETRO_DEBUG_SNAPSHOT` macro to debug snapshot memory regions.
   * Create inline MemorySnapShot_Store to accelerate savestate load and save.
+  * Create inline MemorySnapShot_StoreFilename to store filenames of a standardized length.
+  * Add error log for SNAPSHOT_MAGIC failure.
 * **hatari/src/mfp.c**
   * Save `PendingCyclesOver` to prevent state divergence.
   * Replace use of `rand()` with deterministic `core_rand()`.
@@ -247,6 +254,7 @@ Otherwise there are minor changes to the CMake build files, each marked with a c
   * LED and message timers changed to count frames instead of using `SDL_GetTicks`.
   * Make floppy LED in top right slightly larger.
   * Fix LED logic that caused its apperance to corrupt on resolution changes. Also [submitted to Hatari](https://github.com/hatari/hatari/pull/27).
+  * Added `core_statusbar_refresh` for manual refresh after savestate restore when needed.
 * **hatari/src/tos.c**
   * Add EmuTOS built-in ROMs.
   * Prevent Hatari from switching the machine configuration due to TOS mismatch. Display the notification onscreen, but let the user modify their own config. This prevents Libretro's core options model from causing spurious resets in these cases (Hatari is modelled on just modifying the config live, but Libretro core options should be provided by the user only, not modified by the running emulation).
@@ -264,13 +272,15 @@ Otherwise there are minor changes to the CMake build files, each marked with a c
   * Replace use of `rand()` with deterministic `core_rand()`.
 * **hatari/src/zip.c**
   * Disable use of `unzOpen` which was modified (see: unzip.c) and not needed by this core.
-* **hatari/cpu/custom.c**
+* **hatari/src/cpu/custom.c**
   * Make `extra_cycle` externally accessible for savestate.
+* **hatari/src/cpu/gencpu.c**
+  * Suppress unused variable warning.
 * **hatari/cpu/hatari-glue.c**
   * Added `core_save_state`, `core_restore_state` and `core_flush_audio` to facilitate seamless savestates.
-* **hatari/cpu/memory.c**
+* **hatari/src/cpu/memory.c**
   * Disable `SDL_Quit`.
-* **hatari/cpu/newcpu.c**
+* **hatari/src/cpu/newcpu.c**
   * Split `m68k_go` into `m68k_go`, `m68k_go_frame`, and `m68k_go_quit` to allow emulation loop to return to the Libretro core after each frame.
     * `m68k_go` initializes the CPU and prepares to emulate the first frame before it exits. This is the last thing done during `retro_init`.
     * `m68k_go_frame` runs the main emulation loop, returning after one frame. This is called once each frame from `retro_run`.
